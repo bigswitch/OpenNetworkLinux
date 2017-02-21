@@ -72,6 +72,9 @@ platform_int_register(int index, char* desc, int value)
                                   v, NULL);
 }
 
+#ifdef SWL_3641
+/* Removed see SWL-3641 */
+
 static void
 resource_int_register(int index, const char* desc,
                       Netsnmp_Node_Handler *handler)
@@ -174,6 +177,7 @@ idle_handler(netsnmp_mib_handler *handler,
 
     return SNMP_ERR_NOERROR;
 }
+#endif
 
 void
 onlp_snmp_platform_init(void)
@@ -216,7 +220,9 @@ onlp_snmp_platform_init(void)
         REGISTER_STR(15, onie_version);
     }
 
+#ifdef SWL_3641
+    /** Removed See SWL-3641*/
     resource_int_register(1, "CpuAllPercentUtilization", utilization_handler);
     resource_int_register(2, "CpuAllPercentIdle", idle_handler);
+#endif
 }
-
