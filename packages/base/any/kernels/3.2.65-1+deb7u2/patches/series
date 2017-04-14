@@ -255,3 +255,4 @@ drivers-hwmon-adm1021-detect.patch
 drivers-i2c-busses-i2c-isch-timeout.patch
 CVE-2016-5195.patch
 platform-accton-as5812_54t-additional-psus.patch
+CVE-2016-10229.patch
