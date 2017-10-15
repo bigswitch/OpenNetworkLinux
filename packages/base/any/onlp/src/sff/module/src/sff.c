@@ -28,6 +28,7 @@
 #include <sff/8636.h>
 #include "sff_log.h"
 #include <ctype.h>
+#include "sff_int.h"
 
 sff_sfp_type_t
 sff_sfp_type_get(const uint8_t* eeprom)
@@ -653,18 +654,8 @@ sff_eeprom_parse_nonstandard__(sff_eeprom_t* se, uint8_t* eeprom)
         return 0;
     }
 
-    if ( strncmp(se->info.vendor, "CISCO-OEM", 9) == 0 &&
-         strncmp(se->info.model, "QSFP-4SFP+-CU", 13) == 0) {
+    if (sff_nonstandard_lookup(&se->info) == 0) {
         se->identified = 1;
-        se->info.module_type = SFF_MODULE_TYPE_40G_BASE_CR4;
-        se->info.module_type_name = sff_module_type_desc(se->info.module_type);
-        se->info.media_type = SFF_MEDIA_TYPE_COPPER;
-        se->info.media_type_name = sff_media_type_desc(se->info.media_type);
-        se->info.caps = SFF_MODULE_CAPS_F_40G;
-        se->info.length = se->eeprom[146];
-        if(strncmp(se->info.model, "QSFP-4SFP+-CU2M", 15) == 0) {
-            se->info.length = 2;
-        }
         SFF_SNPRINTF(se->info.length_desc, sizeof(se->info.length_desc), "%dm",
                      se->info.length);
         return 0;
