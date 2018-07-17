@@ -160,19 +160,6 @@ elif test -r /etc/machine.conf; then
   . /etc/machine.conf
 fi
 
-
-#
-# The platform aliases are required for older release trains.
-# This remap is done at installer time until the ONL infra
-# supports proper aliases.
-#
-case $onie_platform in
-  x86_64-dell_s3000_c2338-r0)
-    onie_platform=x86_64-dellemc_s3000_c2338-r0
-    ;;
-  *)
-esac
-
 visit_proc_mounts() {
   local ifs line dummy fn rest sts
   fn=$1; shift
