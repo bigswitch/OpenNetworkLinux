@@ -1,8 +1,6 @@
 import subprocess
 import logging
-import urllib2
 import os
-import tempfile
 
 class OnlServiceMixin(object):
     def _execute(self, cmd, root=False, ex=True):
@@ -96,6 +94,10 @@ def dmerge(d1, d2):
 
 
 def wget(url, directory=None, temp_directory=None, extension=None):
+
+    import urllib2
+    import tempfile
+
     try:
         response = urllib2.urlopen(url)
         filename = os.path.basename(urllib2.urlparse.urlparse(response.url).path)
