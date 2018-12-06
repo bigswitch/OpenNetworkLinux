@@ -12,7 +12,7 @@ from onl.upgrade import ubase
 from onl.sysconfig import sysconfig
 from onl.mounts import OnlMountManager, OnlMountContextReadOnly, OnlMountContextReadWrite
 from onl.install import BaseInstall, ConfUtils, InstallUtils
-from onl.install.ShellApp import OnieBootContext
+from onl.install.ShellApp import OnieBootContext, OnieSysinfo
 import onl.platform.current
 import onl.versions
 
@@ -233,3 +233,4 @@ if arch in [ 'ppc', 'armv7l', 'aarch64', 'arm64' ]:
     LoaderUpgrade = LoaderUpgrade_Fit
 elif arch == 'x86_64':
     LoaderUpgrade = LoaderUpgrade_x86_64
+
