@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <onlplib/i2c.h>
 #include <onlplib/file.h>
 #include <onlp/platformi/sysi.h>
 #include <onlp/platformi/ledi.h>
@@ -49,46 +50,55 @@ onlp_sysi_init(void)
     int skfd = -1;
     char interface[64];
     struct ifreq ifr;
-    
+
     if ((skfd = socket(AF_INET, SOCK_DGRAM,0)) < 0) {
         perror("socket");
         return ONLP_STATUS_OK;
     }
     memset(interface, 0x0, 64);
-    strncpy(interface, "eth0", strlen("eth0"));
-	strncpy(ifr.ifr_name, interface, IFNAMSIZ);
+    aim_strlcpy(interface, "eth0", strlen("eth0"));
+	  aim_strlcpy(ifr.ifr_name, interface, IFNAMSIZ);
     if (ioctl(skfd, SIOCGMIIPHY, &ifr) < 0) {
         if (errno != ENODEV)
             fprintf(stderr, "SIOCGMIIPHY on '%s' failed: %s\n",
                 interface, strerror(errno));
 
-        close(skfd);	
+        close(skfd);
         return ONLP_STATUS_E_INTERNAL;
     }
     /* fix mgt port led issue */
     mdio_write(skfd, 0x16, 3, ifr);
-    mdio_write(skfd, 0x10, 0x7204, ifr);    
+    mdio_write(skfd, 0x10, 0x7204, ifr);
     mdio_write(skfd, 0x11, 0x4455, ifr);
     mdio_write(skfd, 0x16, 0, ifr);
     close(skfd);
-    
+
     return ONLP_STATUS_OK;
 }
 
 int
 onlp_sysi_onie_data_get(uint8_t** data, int* size)
 {
-    uint8_t* rdata = aim_zmalloc(512);
-    if(onlp_file_read(rdata, 512, size, IDPROM_PATH) == ONLP_STATUS_OK) {
-        if(*size == 512) {
-            *data = rdata;
-            return ONLP_STATUS_OK;
+    int ret = ONLP_STATUS_OK;
+    int i = 0;
+    uint8_t* rdata = aim_zmalloc(256);
+  
+    for (i = 0; i < 128; i++) {
+        ret = onlp_i2c_readw(0, 0x57, i*2, ONLP_I2C_F_FORCE);
+        if (ret < 0) {            
+            aim_free(rdata);
+            *size = 0;
+            return ret;
         }
+
+        rdata[i*2]   = ret & 0xff;
+        rdata[i*2+1] = (ret >> 8) & 0xff;
     }
 
-    aim_free(rdata);
-    *size = 0;
-    return ONLP_STATUS_E_INTERNAL;
+    *size = 256;
+    *data = rdata;
+
+    return ONLP_STATUS_OK;
 }
 
 int
@@ -97,7 +107,7 @@ onlp_sysi_oids_get(onlp_oid_t* table, int max)
     int i;
     onlp_oid_t* e = table;
     memset(table, 0, max*sizeof(onlp_oid_t));
-    
+
     /* 7 Thermal sensors on the chassis */
     for (i = 1; i <= CHASSIS_THERMAL_COUNT; i++) {
         *e++ = ONLP_THERMAL_ID_CREATE(i);
@@ -152,9 +162,9 @@ onlp_sysi_platform_info_get(onlp_platform_info_t* pi)
         }
     }
 
-    pi->cpld_versions = aim_fstrdup("%s:%d, %s:%d, %s:%d, %s:%d", 
+    pi->cpld_versions = aim_fstrdup("%s:%d, %s:%d, %s:%d, %s:%d",
                                     cplds[0].description, cplds[0].version,
-                                    cplds[1].description, cplds[1].version,                                    
+                                    cplds[1].description, cplds[1].version,
                                     cplds[2].description, cplds[2].version);
 
     return ONLP_STATUS_OK;
@@ -165,4 +175,3 @@ onlp_sysi_platform_info_free(onlp_platform_info_t* pi)
 {
     aim_free(pi->cpld_versions);
 }
-
