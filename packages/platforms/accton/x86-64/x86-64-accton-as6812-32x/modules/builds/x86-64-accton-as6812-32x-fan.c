@@ -138,8 +138,8 @@ static ssize_t fan_set_duty_cycle(struct device *dev,
 static ssize_t fan_show_value(struct device *dev, 
                     struct device_attribute *da, char *buf);
 
-extern int as6812_32x_cpld_read(unsigned short cpld_addr, u8 reg);
-extern int as6812_32x_cpld_write(unsigned short cpld_addr, u8 reg, u8 value);
+extern int as6812_32x_i2c_cpld_read(unsigned short cpld_addr, u8 reg);
+extern int as6812_32x_i2c_cpld_write(unsigned short cpld_addr, u8 reg, u8 value);
 
                     
 /*******************/
@@ -258,12 +258,12 @@ static const struct attribute_group accton_as6812_32x_fan_group = {
 
 static int accton_as6812_32x_fan_read_value(u8 reg)
 {
-    return as6812_32x_cpld_read(0x60, reg);
+    return as6812_32x_i2c_cpld_read(0x60, reg);
 }
 
 static int accton_as6812_32x_fan_write_value(u8 reg, u8 value)
 {
-    return as6812_32x_cpld_write(0x60, reg, value);
+    return as6812_32x_i2c_cpld_write(0x60, reg, value);
 }
 
 static void accton_as6812_32x_fan_update_device(struct device *dev)
@@ -358,8 +358,7 @@ static int accton_as6812_32x_fan_probe(struct platform_device *pdev)
 
     }
     
-    fan_data->hwmon_dev = hwmon_device_register_with_info(&pdev->dev, "as6812_32x_fan",
-                                                      NULL, NULL, NULL);
+	fan_data->hwmon_dev = hwmon_device_register(&pdev->dev);
 	if (IS_ERR(fan_data->hwmon_dev)) {
 		status = PTR_ERR(fan_data->hwmon_dev);
 		goto exit_remove;
@@ -398,6 +397,11 @@ static int __init accton_as6812_32x_fan_init(void)
 {
     int ret;
     
+    extern int platform_accton_as6812_32x(void);
+    if(!platform_accton_as6812_32x()) { 
+      return -ENODEV;
+    }
+
     ret = platform_driver_register(&accton_as6812_32x_fan_driver);
     if (ret < 0) {
         goto exit;
