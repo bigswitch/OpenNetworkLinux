@@ -434,21 +434,22 @@ static int as7712_32x_cpld_probe(struct i2c_client *client,
     dev_info(&client->dev, "chip found\n");
 
 	/* Register sysfs hooks */
-	status = sysfs_create_group(&client->dev.kobj, &as7712_32x_cpld_group);
-	if (status) {
-		goto exit_free;
-	}
+    status = sysfs_create_group(&client->dev.kobj, &as7712_32x_cpld_group);
+    if (status) {
+        goto exit_free;
+    }
 
-	data->hwmon_dev = hwmon_device_register(&client->dev);
-	if (IS_ERR(data->hwmon_dev)) {
-		status = PTR_ERR(data->hwmon_dev);
-		goto exit_remove;
-	}
+    data->hwmon_dev = hwmon_device_register_with_info(&client->dev, "as7712_32x_cpld",
+                                                      NULL, NULL, NULL);
+    if (IS_ERR(data->hwmon_dev)) {
+        status = PTR_ERR(data->hwmon_dev);
+        goto exit_remove;
+    }
 
-	as7712_32x_cpld_add_client(client);
+    as7712_32x_cpld_add_client(client);
 
-	dev_info(&client->dev, "%s: cpld '%s'\n",
-		 dev_name(data->hwmon_dev), client->name);
+    dev_info(&client->dev, "%s: cpld '%s'\n",
+    dev_name(data->hwmon_dev), client->name);
 
     return 0;
 

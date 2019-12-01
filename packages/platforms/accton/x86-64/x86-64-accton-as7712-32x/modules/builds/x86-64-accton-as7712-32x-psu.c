@@ -35,6 +35,7 @@
 #include <linux/dmi.h>
 
 #define MAX_MODEL_NAME          16
+#define MAX_SERIAL_NUMBER       19
 
 #define DC12V_FAN_DIR_OFFSET    0x34
 #define DC12V_FAN_DIR_LEN       3
@@ -47,6 +48,13 @@ extern int as7712_32x_cpld_read (unsigned short cpld_addr, u8 reg);
  */
 static const unsigned short normal_i2c[] = { I2C_CLIENT_END };
 
+enum psu_type {
+    PSU_TYPE_AC_110V,
+    PSU_TYPE_DC_48V,
+    PSU_TYPE_DC_12V,
+    PSU_TYPE_AC_ACBEL_FSF019,
+};
+
 /* Each client has this additional data 
  */
 struct as7712_32x_psu_data {
@@ -58,6 +66,8 @@ struct as7712_32x_psu_data {
     u8  status;          /* Status(present/power_good) register read from CPLD */
     char model_name[MAX_MODEL_NAME]; /* Model name, read from eeprom */
     char fan_dir[DC12V_FAN_DIR_LEN+1]; /* DC12V fan direction */
+    char serial_number[MAX_SERIAL_NUMBER];
+    enum psu_type       type;
 };
 
 static ssize_t show_string(struct device *dev, struct device_attribute *da, char *buf);
@@ -66,6 +76,7 @@ static struct as7712_32x_psu_data *as7712_32x_psu_update_device(struct device *d
 enum as7712_32x_psu_sysfs_attributes {
     PSU_PRESENT,
     PSU_MODEL_NAME,
+    PSU_SERIAL_NUMBER, /* For ACBEL PSU only */
     PSU_POWER_GOOD,
     PSU_FAN_DIR /* For DC12V only */
 };
@@ -74,12 +85,14 @@ enum as7712_32x_psu_sysfs_attributes {
  */
 static SENSOR_DEVICE_ATTR(psu_present,    S_IRUGO, show_status, NULL, PSU_PRESENT);
 static SENSOR_DEVICE_ATTR(psu_model_name, S_IRUGO, show_string, NULL, PSU_MODEL_NAME);
+static SENSOR_DEVICE_ATTR(psu_serial_number, S_IRUGO, show_string, NULL, PSU_SERIAL_NUMBER);
 static SENSOR_DEVICE_ATTR(psu_power_good, S_IRUGO, show_status, NULL, PSU_POWER_GOOD);
 static SENSOR_DEVICE_ATTR(psu_fan_dir,       S_IRUGO, show_string, NULL, PSU_FAN_DIR);
 
 static struct attribute *as7712_32x_psu_attributes[] = {
     &sensor_dev_attr_psu_present.dev_attr.attr,
     &sensor_dev_attr_psu_model_name.dev_attr.attr,
+    &sensor_dev_attr_psu_serial_number.dev_attr.attr,
     &sensor_dev_attr_psu_power_good.dev_attr.attr,
     &sensor_dev_attr_psu_fan_dir.dev_attr.attr,
     NULL
@@ -88,12 +101,17 @@ static struct attribute *as7712_32x_psu_attributes[] = {
 static ssize_t show_status(struct device *dev, struct device_attribute *da,
              char *buf)
 {
+    struct i2c_client *client = to_i2c_client(dev);
+    struct as7712_32x_psu_data *data = i2c_get_clientdata(client);
     struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
-    struct as7712_32x_psu_data *data = as7712_32x_psu_update_device(dev);
     u8 status = 0;
 
+    mutex_lock(&data->update_lock);
+
+    data = as7712_32x_psu_update_device(dev);
     if (!data->valid) {
-        return -EIO;
+        mutex_unlock(&data->update_lock);
+        return sprintf(buf, "0\n");
     }
 
     if (attr->index == PSU_PRESENT) {
@@ -103,27 +121,42 @@ static ssize_t show_status(struct device *dev, struct device_attribute *da,
         status = (data->status >> (3-data->index) & 0x1);
     }
 
+    mutex_unlock(&data->update_lock);
     return sprintf(buf, "%d\n", status);
 }
 
 static ssize_t show_string(struct device *dev, struct device_attribute *da,
              char *buf)
 {
+    struct i2c_client *client = to_i2c_client(dev);
+    struct as7712_32x_psu_data *data = i2c_get_clientdata(client);
     struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
-    struct as7712_32x_psu_data *data = as7712_32x_psu_update_device(dev);
     char *ptr = NULL;
 
+    mutex_lock(&data->update_lock);
+
+    data = as7712_32x_psu_update_device(dev);
     if (!data->valid) {
+        mutex_unlock(&data->update_lock);
         return -EIO;
     }
 
-    if (attr->index == PSU_MODEL_NAME) {
-        ptr = data->model_name;
-    }
-    else { /* PSU_FAN_DIR */
-        ptr = data->fan_dir;
-    }
+    switch (attr->index) {
+	case PSU_MODEL_NAME:
+		ptr = data->model_name;
+		break;
+	case PSU_SERIAL_NUMBER:
+		ptr = data->serial_number;
+		break;
+	case PSU_FAN_DIR:
+		ptr = data->fan_dir;
+		break;
+	default:
+	    mutex_unlock(&data->update_lock);
+		return -EINVAL;
+	}
 
+    mutex_unlock(&data->update_lock);
     return sprintf(buf, "%s\n", ptr);
 }
 
@@ -161,7 +194,8 @@ static int as7712_32x_psu_probe(struct i2c_client *client,
         goto exit_free;
     }
 
-    data->hwmon_dev = hwmon_device_register(&client->dev);
+    data->hwmon_dev = hwmon_device_register_with_info(&client->dev, "as7712_32x_psu",
+                                                      NULL, NULL, NULL);
     if (IS_ERR(data->hwmon_dev)) {
         status = PTR_ERR(data->hwmon_dev);
         goto exit_remove;
@@ -245,12 +279,6 @@ static int as7712_32x_psu_read_block(struct i2c_client *client, u8 command, u8 *
     return result;
 }
 
-enum psu_type {
-    PSU_TYPE_AC_110V,
-    PSU_TYPE_DC_48V,
-    PSU_TYPE_DC_12V
-};
-
 struct model_name_info {
     enum psu_type type;
     u8 offset;
@@ -258,10 +286,38 @@ struct model_name_info {
     char* model_name;
 };
 
+static int acbel_psu_serial_number_get(struct device *dev)
+{
+    struct i2c_client *client = to_i2c_client(dev);
+    struct as7712_32x_psu_data *data = i2c_get_clientdata(client);
+    int i, status;
+
+    memset(data->serial_number, 0, sizeof(data->serial_number));
+
+    /* Read from offset 0x2e ~ 0x3d (16 bytes) */
+    status = as7712_32x_psu_read_block(client, 0x2e,data->serial_number, 16);
+    if (status < 0) {
+        data->serial_number[0] = '\0';
+        dev_dbg(&client->dev, "unable to read model name from (0x%x) offset(0x2e)\n", client->addr);
+        return status;
+    }
+
+    /* Read from offset 0x4f ~ 0x50 (2 bytes) */
+    status = as7712_32x_psu_read_block(client, 0x4f, data->serial_number + 16, 2);
+    if (status < 0) {
+        data->serial_number[0] = '\0';
+        dev_dbg(&client->dev, "unable to read model name from (0x%x) offset(0x4f)\n", client->addr);
+        return status;
+    }
+
+    return 0;
+}
+
 struct model_name_info models[] = {
 {PSU_TYPE_AC_110V, 0x20, 8,  "YM-2651Y"},
 {PSU_TYPE_DC_48V,  0x20, 8,  "YM-2651V"},
 {PSU_TYPE_DC_12V,  0x00, 11, "PSU-12V-750"},
+{PSU_TYPE_AC_ACBEL_FSF019, 0x15, 7, "FSF019-"},
 };
 
 static int as7712_32x_psu_model_name_get(struct device *dev)
@@ -285,6 +341,20 @@ static int as7712_32x_psu_model_name_get(struct device *dev)
             data->model_name[models[i].length] = '\0';
         }
 
+        /* Get the remaining model name for FSF019 */
+        if (strncmp(data->model_name, "FSF019-", 7) == 0) {
+            char buf[5] = {0};
+
+            status = as7712_32x_psu_read_block(client, 0x48, data->model_name + models[i].length, 4);
+            if (status < 0) {
+                data->model_name[0] = '\0';
+                dev_dbg(&client->dev, "unable to read model name from (0x%x) offset(0x48)\n", client->addr);
+                return status;
+            }
+
+            data->type = PSU_TYPE_AC_ACBEL_FSF019;
+        }
+
         /* Determine if the model name is known, if not, read next index
          */
         if (strncmp(data->model_name, models[i].model_name, models[i].length) == 0) {
@@ -302,8 +372,6 @@ static struct as7712_32x_psu_data *as7712_32x_psu_update_device(struct device *d
 {
     struct i2c_client *client = to_i2c_client(dev);
     struct as7712_32x_psu_data *data = i2c_get_clientdata(client);
-    
-    mutex_lock(&data->update_lock);
 
     if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
         || !data->valid) {
@@ -348,6 +416,11 @@ static struct as7712_32x_psu_data *as7712_32x_psu_update_device(struct device *d
                     goto exit;
                 }
             }
+
+            if (data->type == PSU_TYPE_AC_ACBEL_FSF019 &&
+                acbel_psu_serial_number_get(dev) < 0) {
+                goto exit;
+            }
         }
         
         data->last_updated = jiffies;
@@ -355,28 +428,10 @@ static struct as7712_32x_psu_data *as7712_32x_psu_update_device(struct device *d
     }
 
 exit:
-    mutex_unlock(&data->update_lock);
-
     return data;
 }
 
-static int __init as7712_32x_psu_init(void)
-{
-    extern int platform_accton_as7712_32x(void);
-    if (!platform_accton_as7712_32x()) {
-        return -ENODEV;
-    }
-
-    return i2c_add_driver(&as7712_32x_psu_driver);
-}
-
-static void __exit as7712_32x_psu_exit(void)
-{
-    i2c_del_driver(&as7712_32x_psu_driver);
-}
-
-module_init(as7712_32x_psu_init);
-module_exit(as7712_32x_psu_exit);
+module_i2c_driver(as7712_32x_psu_driver);
 
 MODULE_AUTHOR("Brandon Chuang <brandon_chuang@accton.com.tw>");
 MODULE_DESCRIPTION("as7712_32x_psu driver");
