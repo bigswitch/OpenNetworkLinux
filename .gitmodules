@@ -6,7 +6,7 @@
 	url = http://github.com/opennetworklinux/linux-3.9.6
 [submodule "sm/infra"]
 	path = sm/infra
-	url = http://github.com/floodlight/infra
+	url = git@github.com:bigswitch/arista-infra
 [submodule "sm/bigcode"]
 	path = sm/bigcode
 	url = http://github.com/floodlight/bigcode
